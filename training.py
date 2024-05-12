@@ -2,118 +2,125 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
+from torch.cuda.amp import GradScaler, autocast
 from nltk.translate.bleu_score import corpus_bleu
 from visualization import plot_training_curves
-import os
 
-# Function to calculate BLUE score
-def BLUE(predictions, references):
-    # Convert predictions and references to lists of strings
-    predictions = [[str(tok) for tok in pred] for pred in predictions]
-    references = [[[str(tok) for tok in ref]] for ref in references]
-
-    # Calculate BLEU score
-    return corpus_bleu(references, predictions)
-
+def BLUE(ref, pred):
+    ref = [[x] for x in ref]
+    score = corpus_bleu(ref, pred)
+    return round(score, 4)
 
 
 # feed forward, no gradient is updated
-def feedforward(data_loader, model, criterion, device):
-    epoch_loss = 0.0
-    all_predictions = []
-    all_references = []
-    
+@torch.no_grad
+def feedforward(data_loader, model):
+    # Set model to evaluation mode
     model.eval()
-    for X, Y_input, Y_output in data_loader:
-        
-        # convert to gpu
-        X = X.to(device)
-        Y_input = Y_input.to(device)
-        Y_output = Y_output.to(device)
-        
-        decoder_outputs = model(X, Y_input)
-
-        
-        loss = criterion(
-            decoder_outputs.view(-1, decoder_outputs.size(-1)),
-            Y_output.view(-1)
-        )
-
-        epoch_loss += loss.item()
-        
-        # Collect predictions and references for BLUE score calculation
-        all_predictions.extend(torch.argmax(decoder_outputs, dim=-1).cpu().tolist())
-        all_references.extend(Y_output.cpu().tolist())
-        
-    epoch_loss /= len(data_loader)
     
-    # Calculate BLUE score
-    epoch_BLUE = BLUE(all_predictions, all_references)
+    running_loss = 0.0
+    running_BLUE = 0.0
     
-    return epoch_loss, epoch_BLUE
+    criterion = nn.NLLLoss()
+    device = next(model.parameters()).device
+
+    with tqdm(total=len(data_loader)) as pbar:
+        for i, (X, Y_input, Y_output) in enumerate(data_loader):
+            # convert to gpu
+            X = X.to(device)
+            Y_input = Y_input.to(device)
+            Y_output = Y_output.to(device)
+            
+            decoder_outputs = model(X, Y_input)
+    
+            loss = criterion(
+                decoder_outputs.view(-1, decoder_outputs.size(-1)),
+                Y_output.view(-1)
+            )
+            
+            # update the statistic
+            running_loss += loss.item()
+            predicted = torch.argmax(decoder_outputs, dim=-1)
+            
+            blue = BLUE(Y_output.tolist(), predicted.tolist())
+            running_BLUE += blue
+            
+            # Update tqdm description with loss and BLUE
+            pbar.set_postfix({'Loss':running_loss/(i+1), 'BLUE':running_BLUE/(i+1)})
+            pbar.update(1)
+            
+    return running_loss/len(data_loader), running_BLUE/len(data_loader)
+
 
 
 # backpropagation for training
-def backpropagation(data_loader, optimizer, model, criterion, device):
-    epoch_loss = 0.0
-    all_predictions = []
-    all_references = []
-    
+def backpropagation(data_loader, optimizer, model, scaler):
+    # Set model to training mode
     model.train()
-    for X, Y_input, Y_output in tqdm(data_loader):
-        
-        # convert to gpu
-        X = X.to(device)
-        Y_input = Y_input.to(device)
-        Y_output = Y_output.to(device)
-        
-        model.zero_grad()
     
-        decoder_outputs = model(X, Y_input)
+    running_loss = 0.0
+    running_BLUE = 0.0
     
-        loss = criterion(
-            decoder_outputs.view(-1, decoder_outputs.size(-1)),
-            Y_output.view(-1)
-        )
-        loss.backward()
+    criterion = nn.NLLLoss()
+    device = next(model.parameters()).device
     
-        optimizer.step()
+    with tqdm(total=len(data_loader)) as pbar:
+        for i, (X, Y_input, Y_output) in enumerate(data_loader):
+            
+            # convert to gpu
+            X = X.to(device)
+            Y_input = Y_input.to(device)
+            Y_output = Y_output.to(device)
+            
+            # mixed precision training
+            with autocast(dtype=torch.float16):
+                decoder_outputs = model(X, Y_input)
+            
+                loss = criterion(
+                    decoder_outputs.view(-1, decoder_outputs.size(-1)),
+                    Y_output.view(-1)
+                )
+                
+            # update the statistic
+            running_loss += loss.item()
+            predicted = torch.argmax(decoder_outputs, dim=-1)
+            blue = BLUE(Y_output.tolist(), predicted.tolist())
+            running_BLUE += blue
+            
+            # Reset gradients
+            optimizer.zero_grad()
     
-        epoch_loss += loss.item()
-        
-        # Collect predictions and references for BLUE score calculation
-        all_predictions.extend(torch.argmax(decoder_outputs, dim=-1).cpu().tolist())
-        all_references.extend(Y_output.cpu().tolist())
-        
-    epoch_loss /= len(data_loader)
+            # Backpropagate the loss
+            scaler.scale(loss).backward()
     
-    # Calculate BLUE score
-    epoch_BLUE = BLUE(all_predictions, all_references)
+            # Optimization step
+            scaler.step(optimizer)
     
-    return epoch_loss, epoch_BLUE
+            # Updates the scale for next iteration.
+            scaler.update()
+            
+            # Update tqdm description with loss and BLUE
+            pbar.set_postfix({'Loss': running_loss/(i+1), 'BLUE':running_BLUE/(i+1)})
+            pbar.update(1)
+      
+    return running_loss/len(data_loader), running_BLUE/len(data_loader)
 
 
 
-def model_training(train_data, valid_data, model, device):
-    n_epochs = 100
-    learning_rate=0.001
+def model_training(train_data, valid_data, model):
+    n_epochs = 80
+    learning_rate = 1e-4
     
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    if f'{type(model).__name__.lower()}_optimizer.pth' in os.listdir():
-        optimizer.load_state_dict(torch.load(f'{type(model).__name__}_optimizer.pth'))
-    criterion = nn.NLLLoss()
+
+    scaler = GradScaler()
     
     # append the results of model with no training
-    train_loss, train_blue = feedforward(train_data, model, criterion, device)
-    valid_loss, valid_blue = feedforward(valid_data, model, criterion, device)
-    print(f"Epoch 0/{n_epochs} | Train BLUE: {train_blue:.3f} | Train Loss: {train_loss:.3f} | Valid BLUE: {valid_blue:.3f} | Valid Loss: {valid_loss:.3f}")
-    
-    
-    # create lists to keep track
-    train_losses = [train_loss]
-    valid_losses = [valid_loss]
-    train_BLUEs = [train_blue]
-    valid_BLUEs = [valid_blue]
+    print(f"Epoch {0}/{n_epochs}")
+    train_loss, train_blue = feedforward(train_data, model)
+    valid_loss, valid_blue = feedforward(valid_data, model)
+    train_losses, train_BLUEs = [train_loss], [train_blue]
+    valid_losses, valid_BLUEs = [valid_loss], [valid_blue]
     
     # Early Stopping criteria
     patience = 3
@@ -123,15 +130,14 @@ def model_training(train_data, valid_data, model, device):
     
     # training loop
     for epoch in range(n_epochs):
-        train_loss, train_blue = backpropagation(train_data, optimizer, model, criterion, device)
-        valid_loss, valid_blue = feedforward(valid_data, model, criterion, device)
+        print(f"Epoch {epoch+1}/{n_epochs}")
+        train_loss, train_blue = backpropagation(train_data, optimizer, model, scaler)
+        valid_loss, valid_blue = feedforward(valid_data, model)
         
         train_losses.append(train_loss)
         valid_losses.append(valid_loss)
         train_BLUEs.append(train_blue)
         valid_BLUEs.append(valid_blue)
-        
-        print(f"Epoch {epoch+1}/{n_epochs} | Train BLUE: {train_blue:.3f} | Train Loss: {train_loss:.3f} | Valid BLUE: {valid_blue:.3f} | Valid Loss: {valid_loss:.3f}")
         
         # evaluate the current preformance
         # strictly better

@@ -2,15 +2,13 @@ from io import open
 import re
 from collections import Counter
 import torch
-import torch.nn as nn
 import jieba
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 import os
 import pickle
 
-from model_attention import Seq2SeqAttention
-from model_transformer import Seq2SeqTransformer
+from transformer import Transformer
 from training import model_training, feedforward
 from visualization import print_sentences
 
@@ -19,12 +17,14 @@ jieba.default_logger.setLevel(20)
 
 
 # supports MacOS mps and CUDA
-def GPU_Device():
+def compute_device():
     if torch.cuda.is_available():
         return 'cuda'
     elif torch.backends.mps.is_available():
         return 'mps'
-
+    else:
+        return 'cpu'
+    
 
 # bidirectional dictionary
 class BidirectionalMap:
@@ -64,7 +64,7 @@ def inference(model, X, target_vocab, device, max_length):
         
         # inference
         out = model.inference(X)
-        
+
         decoded_words = tensorToTokens(target_vocab, out)
         return decoded_words
     
@@ -166,11 +166,7 @@ def tensorToTokens(lang, tensor):
     return tokens
 
 
-def dataloader(source_sentences, target_sentences_input, target_sentences_output, batch_size, model_name):    
-    # for Attention models, target_sentences_input should be replaced by target_sentences_output
-    if model_name == 'Attention':
-        target_sentences_input = target_sentences_output
-        
+def dataloader(source_sentences, target_sentences_input, target_sentences_output, batch_size):
     # Combine source and target sentences into tuples
     dataset = list(zip(source_sentences, target_sentences_input, target_sentences_output))
     
@@ -181,23 +177,20 @@ def dataloader(source_sentences, target_sentences_input, target_sentences_output
     
     
 def main():
-    # which model to use
-    model_name = 'Transformer'
-    
     # Define paths to the extracted files
     en_file = '../Datasets/Machine Translation Between Chinese and English/english.en'
     zh_file = '../Datasets/Machine Translation Between Chinese and English/chinese.zh'
     
     # Read English sentences from the file
     with open(en_file, 'r', encoding='utf-8') as f:
-        en_sentences = f.readlines()[:100000] # load a small data subset
+        en_sentences = f.readlines()[:200000] # load a small data subset
     # Read Chinese sentences from the file
     with open(zh_file, 'r', encoding='utf-8') as f:
-        zh_sentences = f.readlines()[:100000] # load a small data subset
+        zh_sentences = f.readlines()[:200000] # load a small data subset
     print('reading files completed')
     
     # visualize examples
-    for i in range(0, 500, 100):
+    for i in range(0, len(en_sentences), len(en_sentences)//6):
         print_sentences(en_sentences[i], zh_sentences[i])
         
     # tokenize
@@ -245,9 +238,8 @@ def main():
     print('done convert to tensor')
     
     # create train and valid data loader
-    batch_size = 100 # 128 is too large for transformer
-    train_dataloader = dataloader(trainX, trainY_input, trainY_output, batch_size, model_name)
-    valid_dataloader = dataloader(validX, validY_input, validY_output, batch_size, model_name)
+    train_dataloader = dataloader(trainX, trainY_input, trainY_output, 64)
+    valid_dataloader = dataloader(validX, validY_input, validY_output, 128)
     print('done created loader')
     
     # define / load the model
@@ -256,17 +248,11 @@ def main():
     trg_sos_ind = zh_vocab.get_value('<sos>')
     trg_eos_ind = zh_vocab.get_value('<eos>')
     
-    if model_name == 'Attention':
-        model = Seq2SeqAttention(len(en_vocab), len(zh_vocab), max_len, trg_sos_ind)
-    elif model_name == 'Transformer':
-        model = Seq2SeqTransformer(len(en_vocab), len(zh_vocab), src_pad_ind, trg_pad_ind, \
-                                   trg_sos_ind, trg_eos_ind, max_len, num_layers=3)
-    model = model.to(GPU_Device()) # move the model to GPU
-    if f'{type(model).__name__}.pth' in os.listdir():
-        model.load_state_dict(torch.load(f'{type(model).__name__}.pth'))
+    model = Transformer(len(en_vocab), len(zh_vocab), src_pad_ind, trg_pad_ind, trg_sos_ind, trg_eos_ind, max_len, num_layers=6)
+    model = model.to(compute_device()) # move the model to GPU
     
     # model training
-    model_training(train_dataloader, valid_dataloader, model, GPU_Device())
+    #model_training(train_dataloader, valid_dataloader, model)
     
     # load the best model
     model.load_state_dict(torch.load(f'{type(model).__name__}.pth'))
@@ -275,15 +261,14 @@ def main():
     testX = [tokensToTensor(en_vocab, item, max_len)[1] for item in testX]
     testY_input = [tokensToTensor(zh_vocab, item, max_len)[0] for item in testY]
     testY_output = [tokensToTensor(zh_vocab, item, max_len)[1] for item in testY]
-    test_dataloader = dataloader(testX, testY_input, testY_output, batch_size, model_name)
-    criterion = nn.NLLLoss()
-    test_loss, test_blue = feedforward(test_dataloader, model, criterion, GPU_Device())
+    test_dataloader = dataloader(testX, testY_input, testY_output, 128)
+    test_loss, test_blue = feedforward(test_dataloader, model)
     print(f'Test BLUE: {test_blue:.3f} | Test Loss: {test_loss:.3f}')
     
-    for ind in range(0, 500, 10):
-        sentenceX = ' '.join(tensorToTokens(en_vocab, testX[ind]))
-        sentenceY = ''.join(tensorToTokens(zh_vocab, testY_output[ind]))
-        predY = inference(model, testX[ind].unsqueeze(0), zh_vocab, GPU_Device(), max_len)
+    for i in range(0, len(testX), len(testX)//6):
+        sentenceX = ' '.join(tensorToTokens(en_vocab, testX[i]))
+        sentenceY = ''.join(tensorToTokens(zh_vocab, testY_output[i]))
+        predY = inference(model, testX[i].unsqueeze(0), zh_vocab, compute_device(), max_len)
         sentencePred = ''.join(predY)
         print_sentences(sentenceX, sentenceY, sentencePred)
 

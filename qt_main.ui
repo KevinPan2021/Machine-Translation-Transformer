@@ -6,20 +6,20 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1050</width>
-    <height>600</height>
+    <width>1250</width>
+    <height>750</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>1050</width>
-    <height>600</height>
+    <width>1250</width>
+    <height>750</height>
    </size>
   </property>
   <property name="maximumSize">
    <size>
-    <width>1050</width>
-    <height>600</height>
+    <width>1250</width>
+    <height>750</height>
    </size>
   </property>
   <property name="mouseTracking">
@@ -37,14 +37,14 @@
   <widget class="QWidget" name="centralwidget">
    <property name="minimumSize">
     <size>
-     <width>1050</width>
-     <height>600</height>
+     <width>1250</width>
+     <height>750</height>
     </size>
    </property>
    <property name="maximumSize">
     <size>
-     <width>1050</width>
-     <height>600</height>
+     <width>1250</width>
+     <height>750</height>
     </size>
    </property>
    <property name="mouseTracking">
@@ -64,8 +64,11 @@
            <widget class="QLabel" name="label_3">
             <property name="font">
              <font>
-              <pointsize>16</pointsize>
+              <pointsize>11</pointsize>
              </font>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color:white;</string>
             </property>
             <property name="text">
              <string>Input Sentence</string>
@@ -79,18 +82,19 @@
            <widget class="QTextEdit" name="textEdit_input">
             <property name="minimumSize">
              <size>
-              <width>500</width>
-              <height>440</height>
+              <width>600</width>
+              <height>600</height>
              </size>
             </property>
             <property name="maximumSize">
              <size>
-              <width>500</width>
-              <height>440</height>
+              <width>600</width>
+              <height>600</height>
              </size>
             </property>
             <property name="styleSheet">
-             <string notr="true">background-color: rgb(56, 64, 85);</string>
+             <string notr="true">background-color: rgb(56, 64, 85);
+color:white;</string>
             </property>
            </widget>
           </item>
@@ -102,8 +106,11 @@
            <widget class="QLabel" name="label_4">
             <property name="font">
              <font>
-              <pointsize>16</pointsize>
+              <pointsize>11</pointsize>
              </font>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color:white;</string>
             </property>
             <property name="text">
              <string>Translated Sentence</string>
@@ -117,18 +124,19 @@
            <widget class="QTextEdit" name="textEdit_output">
             <property name="minimumSize">
              <size>
-              <width>500</width>
-              <height>440</height>
+              <width>600</width>
+              <height>600</height>
              </size>
             </property>
             <property name="maximumSize">
              <size>
-              <width>500</width>
-              <height>440</height>
+              <width>600</width>
+              <height>600</height>
              </size>
             </property>
             <property name="styleSheet">
-             <string notr="true">background-color: rgb(56, 64, 85);</string>
+             <string notr="true">background-color: rgb(56, 64, 85);
+color:white;</string>
             </property>
            </widget>
           </item>
@@ -153,6 +161,9 @@
         </item>
         <item>
          <widget class="QLabel" name="label_6">
+          <property name="styleSheet">
+           <string notr="true">color:white;</string>
+          </property>
           <property name="text">
            <string>Model</string>
           </property>
@@ -171,6 +182,11 @@
             <width>140</width>
             <height>25</height>
            </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>8</pointsize>
+           </font>
           </property>
           <property name="styleSheet">
            <string notr="true">QComboBox {
@@ -194,11 +210,6 @@ QComboBox:disabled {
             <string>Transformer</string>
            </property>
           </item>
-          <item>
-           <property name="text">
-            <string>Attention</string>
-           </property>
-          </item>
          </widget>
         </item>
         <item>
@@ -216,6 +227,9 @@ QComboBox:disabled {
         </item>
         <item>
          <widget class="QLabel" name="label_7">
+          <property name="styleSheet">
+           <string notr="true">color:white;</string>
+          </property>
           <property name="text">
            <string>Input Language</string>
           </property>
@@ -234,6 +248,11 @@ QComboBox:disabled {
             <width>120</width>
             <height>25</height>
            </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>8</pointsize>
+           </font>
           </property>
           <property name="styleSheet">
            <string notr="true">QComboBox {
@@ -274,6 +293,9 @@ QComboBox:disabled {
         </item>
         <item>
          <widget class="QLabel" name="label_8">
+          <property name="styleSheet">
+           <string notr="true">color:white;</string>
+          </property>
           <property name="text">
            <string>Output Language</string>
           </property>
@@ -292,6 +314,11 @@ QComboBox:disabled {
             <width>120</width>
             <height>25</height>
            </size>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>8</pointsize>
+           </font>
           </property>
           <property name="styleSheet">
            <string notr="true">QComboBox {
@@ -333,31 +360,24 @@ QComboBox:disabled {
        </layout>
       </item>
       <item>
-       <widget class="Line" name="line">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-       </widget>
-      </item>
-      <item>
        <layout class="QHBoxLayout" name="horizontalLayout_4">
         <item>
          <widget class="QToolButton" name="toolButton_process">
           <property name="minimumSize">
            <size>
-            <width>100</width>
-            <height>38</height>
+            <width>120</width>
+            <height>42</height>
            </size>
           </property>
           <property name="maximumSize">
            <size>
-            <width>100</width>
-            <height>38</height>
+            <width>120</width>
+            <height>42</height>
            </size>
           </property>
           <property name="font">
            <font>
-            <pointsize>14</pointsize>
+            <pointsize>9</pointsize>
            </font>
           </property>
           <property name="styleSheet">

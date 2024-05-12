@@ -1,5 +1,5 @@
 Introduction:
-	This project aims to preform Machine Translation using Seq2Seq Attention and Seq2Seq Transformer from Scratch.
+	This project aims to preform Machine Translation (English to Chinese) using Transformer Trained from Scratch.
 
 
 
@@ -9,14 +9,25 @@ Dataset:
 
 
 Build: 
-	M1 Macbook Pro
-	Miniforge 3 (Python 3.9)
-	PyTorch version: 2.2.1
+	System:
+		CPU: Intel i9-13900H (14 cores)
+		GPU: NIVIDIA RTX 4060 (VRAM 8 GB)
+		RAM: 32 GB
 
-* Alternative Build:
-	Windows (NIVIDA GPU)
-	Anaconda 3
-	PyTorch
+	Configuration:
+		CUDA 12.1
+		Anaconda 3
+		Python = 3.11.7
+		Spyder = 5.4.3
+		
+	Core Python Package:
+		pytorch = 2.1.2
+		numpy = 1.26.4
+		matplotlib = 3.8.0
+		pandas = 1.5.3
+		tqdm = 4.64.1
+		jieba = 0.42.1
+		nltk = 3.8.1
 
 
 
@@ -29,14 +40,12 @@ Generate ".py" file from ".ui" file:
 Core Project Structure:
 	GUI.py (Run to generate a GUI)
 	main.py (Run to train model)
-	model_transformer.py
-	model_attention.py
+	transformer.py
 	qt_main.py
 	training.py
 	visualization.py
 
 
 Credits:
-	Seq2Seq model is referenced from "https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html"
-	Transformer model is referenced from "https://github.com/devjwsong/transformer-translator-pytorch/"
+	https://github.com/devjwsong/transformer-translator-pytorch/
 	

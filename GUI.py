@@ -7,10 +7,9 @@ import pickle
 import torch
 import jieba
 
-from model_attention import Seq2SeqAttention
-from model_transformer import Seq2SeqTransformer
+from transformer import Transformer
 from qt_main import Ui_Application
-from main import BidirectionalMap, GPU_Device, inference, en_tokenizer, tokensToTensor
+from main import BidirectionalMap, compute_device, inference, en_tokenizer, tokensToTensor
 
 
 # Redirect output to os.devnull
@@ -87,16 +86,14 @@ class QT_Action(Ui_Application, QMainWindow):
         
         # load the model
         if self.model_name == 'Transformer':
-            self.model = Seq2SeqTransformer(len(self.input_vocab), len(self.output_vocab), src_pad_ind, trg_pad_ind, \
-                                       trg_sos_ind, trg_eos_ind, self.max_len, num_layers=3)
-        elif self.model_name == 'Attention':
-            self.model = Seq2SeqAttention(len(self.input_vocab), len(self.output_vocab), self.max_len, trg_sos_ind)
-            
+            self.model = Transformer(len(self.input_vocab), len(self.output_vocab), src_pad_ind, trg_pad_ind, \
+                                       trg_sos_ind, trg_eos_ind, self.max_len, num_layers=6)
+         
         # loading the training model weights
-        self.model.load_state_dict(torch.load(f'Seq2Seq{self.model_name}.pth'))
+        self.model.load_state_dict(torch.load(f'{self.model_name}.pth'))
             
         # move model to GPU
-        self.model = self.model.to(GPU_Device())
+        self.model = self.model.to(compute_device())
         
         self.model.eval() # Set model to evaluation mode
     
@@ -114,7 +111,7 @@ class QT_Action(Ui_Application, QMainWindow):
         X = tokensToTensor(self.input_vocab, X, self.max_len)[1]
         
         # model inference
-        out_sentence = inference(self.model, X.unsqueeze(0), self.output_vocab, GPU_Device(), self.max_len)
+        out_sentence = inference(self.model, X.unsqueeze(0), self.output_vocab, compute_device(), self.max_len)
         
         # print out the output sentence
         if self.comboBox_output.currentText() == 'Chinese':
