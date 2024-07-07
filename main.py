@@ -153,7 +153,7 @@ def main():
     model = model.to(compute_device()) # move the model to GPU
     
     # model training
-    model_training(train_loader, valid_loader, model)
+    #model_training(train_loader, valid_loader, model)
     
     # load the best model
     model.load_state_dict(torch.load(f'{type(model).__name__}.pth'))
@@ -176,7 +176,7 @@ def main():
         
         # delete all special tokens
         sentenceX = tokenizer.decode(item['x'].numpy(), omit_special_tok=True)
-        sentenceY = tokenizer.decode(item['y'].numpy(), omit_special_tok=True)
+        sentenceY = tokenizer.decode(item['y_in'].numpy(), omit_special_tok=True)
         
         # conver to tensor
         x = item['x'].unsqueeze(0).to(compute_device())
