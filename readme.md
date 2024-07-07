@@ -47,5 +47,5 @@ Core Project Structure:
 
 
 Credits:
-	https://github.com/devjwsong/transformer-translator-pytorch/
+	https://github.com/openai/gpt-2/blob/master/src/encoder.py
 	

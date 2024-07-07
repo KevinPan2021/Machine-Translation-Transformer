@@ -163,7 +163,7 @@ def main():
     
     # create train and valid data loader
     test_loader = DataLoader(
-        test_dataset, batch_size=256, num_workers=4, pin_memory=True, 
+        test_dataset, batch_size=128, num_workers=4, pin_memory=True, 
         persistent_workers=True, shuffle=False
     )
     
