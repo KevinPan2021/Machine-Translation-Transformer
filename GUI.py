@@ -1,43 +1,32 @@
 application_name = 'Machine Translation'
 # pyqt packages
 from PyQt5.QtWidgets import QMainWindow, QApplication
+from PyQt5 import uic
 
 import sys
-import pickle
 import torch
-import jieba
 
 from transformer import Transformer
-from qt_main import Ui_Application
-from main import BidirectionalMap, compute_device, inference, en_tokenizer, tokensToTensor
-
-
-# Redirect output to os.devnull
-jieba.default_logger.setLevel(20)
-
+from main import compute_device
+from tokenizer import Tokenizer
         
 
-class QT_Action(Ui_Application, QMainWindow):
+class QT_Action(QMainWindow):
     def __init__(self):
         # system variable
         super(QT_Action, self).__init__()
-        self.setupUi(self)
-        self.retranslateUi(self)
+        uic.loadUi('qt_main.ui', self)
+        
         self.setWindowTitle(application_name) # set the title
         self.mouse_pos = None
         
         # runtime variable
-        self.predicted = None
-        self.image = None
         self.model = None
-        self.input_tokenizer = None
-        self.output_tokenizer = None
-        self.input_vocab = None
-        self.output_vocab = None
-        self.max_len = 64
+        self.seq_length = 64
         
-        # load language vocab
-        self.load_language_action()
+        # load tokenizer
+        self.tokenizer = Tokenizer()
+        self.tokenizer.load('vocab.pkl')
         
         # load the model
         self.load_model_action()
@@ -47,48 +36,33 @@ class QT_Action(Ui_Application, QMainWindow):
     # linking all button/textbox with actions    
     def link_commands(self,):
         self.comboBox_model.activated.connect(self.load_model_action)
-        self.comboBox_input.activated.connect(self.load_language_action)
-        self.comboBox_output.activated.connect(self.load_language_action)
         self.toolButton_process.clicked.connect(self.process_action)
         
-        
-    def load_language_action(self,):
-        # get the input and output languages
-        input_language = self.comboBox_input.currentText()
-        output_language = self.comboBox_output.currentText()
-        
-        # load the vocabulary
-        with open(f'{input_language}.pkl', 'rb') as f:    
-            self.input_vocab = pickle.load(f)
-
-        with open(f'{output_language}.pkl', 'rb') as f:    
-            self.output_vocab = pickle.load(f)
-        
-        # load the tokenizer
-        if input_language == 'English':
-            self.input_tokenizer = en_tokenizer
-        elif input_language == 'Chinese':
-            self.input_tokenizer = jieba
-        
-        if output_language == 'English':
-            self.output_tokenizer = en_tokenizer
-        elif output_language == 'Chinese':
-            self.output_tokenizer = jieba
-                
+     
             
     # choosing between models
     def load_model_action(self,):
         self.model_name = self.comboBox_model.currentText()
-        src_pad_ind = self.input_vocab.get_value('<pad>')
-        trg_pad_ind = self.output_vocab.get_value('<pad>')
-        trg_sos_ind = self.output_vocab.get_value('<sos>')
-        trg_eos_ind = self.output_vocab.get_value('<eos>')
         
         # load the model
         if self.model_name == 'Transformer':
-            self.model = Transformer(len(self.input_vocab), len(self.output_vocab), src_pad_ind, trg_pad_ind, \
-                                       trg_sos_ind, trg_eos_ind, self.max_len, num_layers=6)
-         
+            pad_ind = self.tokenizer.get_special_token()['<|pad|>']
+            start_ind = self.tokenizer.get_special_token()['<|startoftext|>']
+            end_ind = self.tokenizer.get_special_token()['<|endoftext|>']
+            
+            seq_len = 64
+            
+            d_model = 640
+            num_layers = 8
+            num_heads = 10
+            d_ff = 2048
+            self.model = Transformer(
+                self.tokenizer.vocab_size(), 
+                pad_ind, start_ind, end_ind,
+                seq_len, num_heads=num_heads, num_layers=num_layers,
+                d_model=d_model, d_ff=d_ff
+            )
+            
         # loading the training model weights
         self.model.load_state_dict(torch.load(f'{self.model_name}.pth'))
             
@@ -104,20 +78,29 @@ class QT_Action(Ui_Application, QMainWindow):
         # get the input sentence
         input_sentence = self.textEdit_input.toPlainText()
         
-        # convert sentence to token
-        X = self.input_tokenizer(input_sentence)
+        # tokenize
+        x = self.tokenizer.encode(input_sentence)
+        special_tok = self.tokenizer.get_special_token()
         
-        # convert to tensor
-        X = tokensToTensor(self.input_vocab, X, self.max_len)[1]
+        # add <|endoftext|> token to the end of x
+        x = x[:self.seq_length-1] # final x shouldn't exceed seq_length
+        x.append(special_tok['<|endoftext|>'])
+        
+        # Pad x and y to seq_length
+        x = x + [special_tok['<|pad|>']] * (self.seq_length - len(x))
+        
+        # conver to tensor
+        x = torch.tensor(x, dtype=torch.long).unsqueeze(0)
+        
+        # move to device
+        x = x.to(compute_device())
         
         # model inference
-        out_sentence = inference(self.model, X.unsqueeze(0), self.output_vocab, compute_device(), self.max_len)
+        out_token = self.model.inference(x).to('cpu')
         
-        # print out the output sentence
-        if self.comboBox_output.currentText() == 'Chinese':
-            out_sentence = ''.join(out_sentence)
-        elif self.comboBox_output.currentText() == 'English':
-            out_sentence = ' '.join(out_sentence)
+        # token decode
+        out_sentence = self.tokenizer.decode(out_token.numpy(), omit_special_tok=True)
+        
         self.textEdit_output.setPlainText(out_sentence)
         
         

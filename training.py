@@ -7,8 +7,7 @@ from nltk.translate.bleu_score import corpus_bleu
 from visualization import plot_training_curves
 
 def BLUE(ref, pred):
-    ref = [[x] for x in ref]
-    score = corpus_bleu(ref, pred)
+    score = corpus_bleu([[x] for x in ref], pred)
     return round(score, 4)
 
 
@@ -25,24 +24,26 @@ def feedforward(data_loader, model):
     device = next(model.parameters()).device
 
     with tqdm(total=len(data_loader)) as pbar:
-        for i, (X, Y_input, Y_output) in enumerate(data_loader):
+        for i, item in enumerate(data_loader):
             # convert to gpu
-            X = X.to(device)
-            Y_input = Y_input.to(device)
-            Y_output = Y_output.to(device)
+            X = item['x'].to(device)
+            Y_in = item['y_in'].to(device)
+            Y_out = item['y_out'].to(device)
             
-            decoder_outputs = model(X, Y_input)
+            # mixed precision
+            with autocast(dtype=torch.float16):
+                decoder_outputs = model(X, Y_in)
     
-            loss = criterion(
-                decoder_outputs.view(-1, decoder_outputs.size(-1)),
-                Y_output.view(-1)
-            )
+                loss = criterion(
+                    decoder_outputs.view(-1, decoder_outputs.size(-1)),
+                    Y_out.view(-1)
+                )
             
             # update the statistic
             running_loss += loss.item()
             predicted = torch.argmax(decoder_outputs, dim=-1)
             
-            blue = BLUE(Y_output.tolist(), predicted.tolist())
+            blue = BLUE(Y_out.tolist(), predicted.tolist())
             running_BLUE += blue
             
             # Update tqdm description with loss and BLUE
@@ -65,26 +66,26 @@ def backpropagation(data_loader, optimizer, model, scaler):
     device = next(model.parameters()).device
     
     with tqdm(total=len(data_loader)) as pbar:
-        for i, (X, Y_input, Y_output) in enumerate(data_loader):
+        for i, item in enumerate(data_loader):
             
             # convert to gpu
-            X = X.to(device)
-            Y_input = Y_input.to(device)
-            Y_output = Y_output.to(device)
+            X = item['x'].to(device)
+            Y_in = item['y_in'].to(device)
+            Y_out = item['y_out'].to(device)
             
             # mixed precision training
             with autocast(dtype=torch.float16):
-                decoder_outputs = model(X, Y_input)
+                decoder_outputs = model(X, Y_in)
             
                 loss = criterion(
                     decoder_outputs.view(-1, decoder_outputs.size(-1)),
-                    Y_output.view(-1)
+                    Y_out.view(-1)
                 )
                 
             # update the statistic
             running_loss += loss.item()
             predicted = torch.argmax(decoder_outputs, dim=-1)
-            blue = BLUE(Y_output.tolist(), predicted.tolist())
+            blue = BLUE(Y_out.tolist(), predicted.tolist())
             running_BLUE += blue
             
             # Reset gradients
@@ -146,9 +147,7 @@ def model_training(train_data, valid_data, model):
             not_improved = 0
             # save the best model based on validation loss
             torch.save(model.state_dict(), f'{type(model).__name__}.pth')
-            # also save the optimizer state for future training
-            torch.save(optimizer.state_dict(), f'{type(model).__name__}_optimizer.pth')
-
+            
         # becomes worst
         elif valid_loss > best_valid_loss + threshold:
             not_improved += 1

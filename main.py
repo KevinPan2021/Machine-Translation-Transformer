@@ -1,19 +1,12 @@
 from io import open
-import re
-from collections import Counter
 import torch
-import jieba
-from tqdm import tqdm
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 import os
-import pickle
 
+from tokenizer import Tokenizer
 from transformer import Transformer
 from training import model_training, feedforward
 from visualization import print_sentences
-
-# Redirect output to os.devnull
-jieba.default_logger.setLevel(20)
 
 
 # supports MacOS mps and CUDA
@@ -26,156 +19,56 @@ def compute_device():
         return 'cpu'
     
 
-# bidirectional dictionary
-class BidirectionalMap:
-    def __init__(self):
-        self.key_to_value = {}
-        self.value_to_key = {}
-        self.add_mapping('<pad>', 0)
-        self.add_mapping('<sos>', 1)
-        self.add_mapping('<eos>', 2)
-        self.add_mapping('<unk>', 3)
+
+# translation dataset inherent from Dataset class
+class Translation_Dataset(Dataset):
+    def __init__(self, X, Y, seq_length, tokenizer):
+        self.X = X
+        self.Y = Y
+        self.seq_length = seq_length
+        self.tokenizer = tokenizer
+        
+        
+    def __getitem__(self, idx):
+        # tokenize
+        x = self.tokenizer.encode(self.X[idx])
+        y = self.tokenizer.encode(self.Y[idx])
+        special_tok = self.tokenizer.get_special_token()
+        
+        # add <|endoftext|> token to the end of x
+        x = x[:self.seq_length-1] # final x shouldn't exceed seq_length
+        x.append(special_tok['<|endoftext|>'])
+        
+        # add <|startoftext|> token to the beginning of y_in
+        y_in = y[:self.seq_length-1] # final y shouldn't exceed seq_length
+        y_in.insert(0, special_tok['<|startoftext|>'])
+        
+        # add <|endoftext|> token to the end of y_out
+        y_out = y[:self.seq_length-1] # final y shouldn't exceed seq_length
+        y_out.append(special_tok['<|endoftext|>'])
+        
+        # Pad x and y to seq_length
+        x = x + [special_tok['<|pad|>']] * (self.seq_length - len(x))
+        y_in = y_in + [special_tok['<|pad|>']] * (self.seq_length - len(y_in))
+        y_out = y_out + [special_tok['<|pad|>']] * (self.seq_length - len(y_out))
+        
+        # Create y_attention_mask where actual tokens are 1 and padding tokens are 0
+        y_mask = [1] * len(y_in) + [0] * (self.seq_length - len(y_in))
+        
+        return {
+            'x': torch.tensor(x, dtype=torch.long),
+            'y_attention_mask': torch.tensor(y_mask, dtype=torch.long),
+            
+            'y_in': torch.tensor(y_in, dtype=torch.long),
+            'y_out': torch.tensor(y_out, dtype=torch.long)
+        }
     
     def __len__(self):
-        return len(self.key_to_value)
-    
-    def keys(self):
-        return self.key_to_value.keys()
-    
-    def add_mapping(self, key, value):
-        self.key_to_value[key] = value
-        self.value_to_key[value] = key
-
-    def get_value(self, key):
-        return self.key_to_value.get(key, 3)
-
-    def get_key(self, value):
-        return self.value_to_key.get(value, '<unk>')
+        return len(self.Y)
     
     
-# model inference
-def inference(model, X, target_vocab, device, max_length):
-    with torch.no_grad():
-        # Set the encoder to evaluation mode
-        model.eval()
-
-        # Move input tensor to device
-        X = X.to(device)
-        
-        # inference
-        out = model.inference(X)
-
-        decoded_words = tensorToTokens(target_vocab, out)
-        return decoded_words
     
 
-def en_tokenizer(text):
-    # Define regex pattern to match words
-    pattern = r"\w+|[^\w\s]"
-    tokens = re.findall(pattern, text)
-    tokens = [token.lower() for token in tokens] # convert to lower case
-    return tokens
-
-
-# tokenize each sentence
-def tokenize(sentences, tokenizer):
-    return [list(tokenizer(sentence.strip())) for sentence in tqdm(sentences)]
-
-
-# build word to ind dictionary
-def build_vocab(sentences, min_freq=2):
-    # Initialize an empty Counter object to count word frequencies
-    word_counts = Counter()
-    
-    # Count word frequencies in all sentences
-    for tokens in sentences:
-        word_counts.update(tokens)
-    
-    # Create a vocabulary mapping from words to indices
-    vocab = BidirectionalMap()
-    
-    for word, freq in word_counts.items():
-        # ignore the word count with too few frequency
-        if freq < min_freq: 
-            continue
-        if word not in vocab.keys():
-            vocab.add_mapping(word, len(vocab))
-           
-    return vocab
-            
-
-# remove the sentence pair that contains unk (too few occurences)
-def remove_unk(en_sentences, zh_sentences, en_vocab, zh_vocab):
-    removed_count = 0
-    i = 0
-
-    while i < len(en_sentences):
-        en_tokens = en_sentences[i]
-        zh_tokens = zh_sentences[i]
-
-        # Check if any token in the English sentence is unknown
-        if any(token not in en_vocab for token in en_tokens) or \
-           any(token not in zh_vocab for token in zh_tokens):
-            del en_sentences[i]
-            del zh_sentences[i]
-            removed_count += 1
-        else:
-            i += 1
-
-    return removed_count
-
-
-
-# convert from a sentence to a torch tensor
-def tokensToTensor(lang, sentence, max_length):
-    # Tokenize sentence and convert tokens to indices using the vocabulary
-    tokens = [lang.get_value(token) for token in sentence]
-    tokens = tokens[:max_length - 1]  # Truncate sentence if it's longer than max_length - 1
-    
-    # tokens input has <sos> in the front
-    tokens_input = tokens.copy()
-    tokens_input.insert(0, lang.get_value('<sos>'))
-    tokens_input += [lang.get_value('<pad>')] * (max_length - len(tokens_input))
-    tokens_input = torch.tensor(tokens_input, dtype=torch.long)
-    
-    # tokens output has <eos> at the end
-    tokens_output = tokens.copy()
-    tokens_output.append(lang.get_value('<eos>'))  # Append end-of-sequence token
-    tokens_output += [lang.get_value('<pad>')] * (max_length - len(tokens_output))
-    tokens_output = torch.tensor(tokens_output, dtype=torch.long)
-
-    return tokens_input, tokens_output
-    
-
-
-# convert from a torch tensor to sentence
-def tensorToTokens(lang, tensor):
-    # Convert tensor to list
-    tokens = tensor.tolist()
-    
-    # replace the last ind with eos (incase eos is not in sentence)
-    tokens[-1] = lang.get_value('<eos>')
-    
-    # Find the index of the end-of-sequence token
-    eos_index = tokens.index(lang.get_value('<eos>'))
-    # Remove padding tokens and end-of-sequence token
-    tokens = tokens[:eos_index]
-    
-    # Convert indices back to tokens
-    tokens = [lang.get_key(token) for token in tokens]
-    return tokens
-
-
-def dataloader(source_sentences, target_sentences_input, target_sentences_output, batch_size):
-    # Combine source and target sentences into tuples
-    dataset = list(zip(source_sentences, target_sentences_input, target_sentences_output))
-    
-    # Create DataLoader with zipped dataset
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    return dataloader
-
-    
-    
 def main():
     # Define paths to the extracted files
     en_file = '../Datasets/Machine Translation Between Chinese and English/english.en'
@@ -183,42 +76,29 @@ def main():
     
     # Read English sentences from the file
     with open(en_file, 'r', encoding='utf-8') as f:
-        en_sentences = f.readlines()[:200000] # load a small data subset
+        en_sentences = f.readlines()
     # Read Chinese sentences from the file
     with open(zh_file, 'r', encoding='utf-8') as f:
-        zh_sentences = f.readlines()[:200000] # load a small data subset
+        zh_sentences = f.readlines()
     print('reading files completed')
     
     # visualize examples
     for i in range(0, len(en_sentences), len(en_sentences)//6):
         print_sentences(en_sentences[i], zh_sentences[i])
         
-    # tokenize
-    en_sentences = tokenize(en_sentences, en_tokenizer)
-    zh_sentences = tokenize(zh_sentences, jieba.cut)
-    
-    # building the vocabulary
-    if 'English.pkl' in os.listdir():
-        with open('English.pkl', 'rb') as f:    
-            en_vocab = pickle.load(f)
+    # tokenizer
+    tokenizer = Tokenizer()
+    vocab_path = 'vocab.pkl'
+    # if a tokenizer has been trained and saved
+    if os.path.exists(vocab_path): 
+        tokenizer.load(vocab_path)
     else:
-        en_vocab = build_vocab(en_sentences)
-        with open('English.pkl', 'wb') as f:
-            pickle.dump(en_vocab, f)
-            
-    if 'Chinese.pkl' in os.listdir():
-        with open('Chinese.pkl', 'rb') as f:    
-            zh_vocab = pickle.load(f)
-    else:
-        zh_vocab = build_vocab(zh_sentences)
-        with open('Chinese.pkl', 'wb') as f:
-            pickle.dump(zh_vocab, f)
-    print('done building the vocabulary')
-    
-    
-    # remove the sentences pair that contains unk (not in vocab)
-    num = remove_unk(en_sentences, zh_sentences, en_vocab.keys(), zh_vocab.keys())
-    print('number of sentences removed', num)
+        # combine the two languages
+        lang_strings = en_sentences + zh_sentences
+        tokenizer.train(lang_strings, iteration=10000)
+        # save the tokenizer
+        tokenizer.save(vocab_path)
+    print('done loading tokenizer')
     
     # train, valid, and test split
     trainX, trainY = en_sentences[:int(0.8*len(en_sentences))], zh_sentences[:int(0.8*len(zh_sentences))]
@@ -227,49 +107,86 @@ def main():
     print('done train test split')
     
     # convert train and valid to tensor
-    max_len = 64
-    trainX = [tokensToTensor(en_vocab, item, max_len)[1] for item in trainX]
-    trainY_input = [tokensToTensor(zh_vocab, item, max_len)[0] for item in trainY]
-    trainY_output = [tokensToTensor(zh_vocab, item, max_len)[1] for item in trainY]
-    
-    validX = [tokensToTensor(en_vocab, item, max_len)[1] for item in validX]
-    validY_input = [tokensToTensor(zh_vocab, item, max_len)[0] for item in validY]
-    validY_output = [tokensToTensor(zh_vocab, item, max_len)[1] for item in validY]
-    print('done convert to tensor')
+    seq_len = 64
+    train_dataset = Translation_Dataset(trainX, trainY, seq_len, tokenizer)
+    valid_dataset = Translation_Dataset(validX, validY, seq_len, tokenizer)
     
     # create train and valid data loader
-    train_dataloader = dataloader(trainX, trainY_input, trainY_output, 64)
-    valid_dataloader = dataloader(validX, validY_input, validY_output, 128)
+    train_loader = DataLoader(
+        train_dataset, batch_size=64, num_workers=4, pin_memory=True, 
+        persistent_workers=True, shuffle=True
+    )
+    valid_loader = DataLoader(
+        valid_dataset, batch_size=128, num_workers=4, pin_memory=True, 
+        persistent_workers=True, shuffle=False
+    )
     print('done created loader')
     
-    # define / load the model
-    src_pad_ind = en_vocab.get_value('<pad>')
-    trg_pad_ind = zh_vocab.get_value('<pad>')
-    trg_sos_ind = zh_vocab.get_value('<sos>')
-    trg_eos_ind = zh_vocab.get_value('<eos>')
     
-    model = Transformer(len(en_vocab), len(zh_vocab), src_pad_ind, trg_pad_ind, trg_sos_ind, trg_eos_ind, max_len, num_layers=6)
+    # visualize the tokenized result
+    for i in range(0, len(train_dataset), len(train_dataset)//6):
+        item = train_dataset[i]
+        X = tokenizer.decode(item['x'].numpy())
+        Y_in = tokenizer.decode(item['y_in'].numpy())
+        Y_out = tokenizer.decode(item['y_out'].numpy())
+        print(X.strip())
+        print(Y_in.strip())
+        print(Y_out.strip())
+        print()
+    
+    
+    # model definition
+    pad_ind = tokenizer.get_special_token()['<|pad|>']
+    start_ind = tokenizer.get_special_token()['<|startoftext|>']
+    end_ind = tokenizer.get_special_token()['<|endoftext|>']
+    
+    d_model = 640
+    num_layers = 8
+    num_heads = 10
+    d_ff = 2048
+    model = Transformer(
+        tokenizer.vocab_size(), 
+        pad_ind, start_ind, end_ind,
+        seq_len, num_heads=num_heads, num_layers=num_layers,
+        d_model=d_model, d_ff=d_ff
+    )
     model = model.to(compute_device()) # move the model to GPU
     
     # model training
-    #model_training(train_dataloader, valid_dataloader, model)
+    model_training(train_loader, valid_loader, model)
     
     # load the best model
     model.load_state_dict(torch.load(f'{type(model).__name__}.pth'))
     
     # load the test dataset
-    testX = [tokensToTensor(en_vocab, item, max_len)[1] for item in testX]
-    testY_input = [tokensToTensor(zh_vocab, item, max_len)[0] for item in testY]
-    testY_output = [tokensToTensor(zh_vocab, item, max_len)[1] for item in testY]
-    test_dataloader = dataloader(testX, testY_input, testY_output, 128)
-    test_loss, test_blue = feedforward(test_dataloader, model)
+    test_dataset = Translation_Dataset(testX, testY, seq_len, tokenizer)
+    
+    # create train and valid data loader
+    test_loader = DataLoader(
+        test_dataset, batch_size=256, num_workers=4, pin_memory=True, 
+        persistent_workers=True, shuffle=False
+    )
+    
+    test_loss, test_blue = feedforward(test_loader, model)
     print(f'Test BLUE: {test_blue:.3f} | Test Loss: {test_loss:.3f}')
     
-    for i in range(0, len(testX), len(testX)//6):
-        sentenceX = ' '.join(tensorToTokens(en_vocab, testX[i]))
-        sentenceY = ''.join(tensorToTokens(zh_vocab, testY_output[i]))
-        predY = inference(model, testX[i].unsqueeze(0), zh_vocab, compute_device(), max_len)
-        sentencePred = ''.join(predY)
+    # visualize some outputs 
+    for i in range(0, len(test_dataset), len(test_dataset)//6):
+        item = test_dataset[i]
+        
+        # delete all special tokens
+        sentenceX = tokenizer.decode(item['x'].numpy(), omit_special_tok=True)
+        sentenceY = tokenizer.decode(item['y'].numpy(), omit_special_tok=True)
+        
+        # conver to tensor
+        x = item['x'].unsqueeze(0).to(compute_device())
+        
+        # model inference
+        out_token = model.inference(x).to('cpu')
+        
+        # token decode
+        sentencePred = tokenizer.decode(out_token.numpy(), omit_special_tok=True)
+        
         print_sentences(sentenceX, sentenceY, sentencePred)
 
 

@@ -108,9 +108,9 @@ class PositionalEncoder(nn.Module):
         for pos in range(seq_len):
             for i in range(d_model):
                 if i % 2 == 0:
-                    pe_matrix[pos, i] = math.sin(pos / (10000 ** (2 * i / self.d_model)))
+                    pe_matrix[pos, i] = math.sin(pos / (10000 ** (2 * i/self.d_model)))
                 elif i % 2 == 1:
-                    pe_matrix[pos, i] = math.cos(pos / (10000 ** (2 * i / self.d_model)))
+                    pe_matrix[pos, i] = math.cos(pos / (10000 ** (2 * i/self.d_model)))
 
         pe_matrix = pe_matrix.unsqueeze(0) # (1, L, d_model)
         self.positional_encoding = pe_matrix.requires_grad_(False)
@@ -209,16 +209,14 @@ class Decoder(nn.Module):
 
 # main transformer class
 class Transformer(nn.Module):
-    def __init__(self, src_vocab_size, trg_vocab_size, src_pad_ind, trg_pad_ind, trg_sos_ind, 
-                 trg_eos_ind, seq_len, num_heads=8, num_layers=6, d_model=512, 
+    def __init__(self, vocab_size, pad_ind, start_ind, end_ind, 
+                 seq_len, num_heads=8, num_layers=6, d_model=512, 
                  d_ff=2048, dropout=0.1):
         super().__init__()
-        self.src_vocab_size = src_vocab_size
-        self.trg_vocab_size = trg_vocab_size
-        self.src_pad_ind = src_pad_ind
-        self.trg_pad_ind = trg_pad_ind
-        self.trg_sos_ind = trg_sos_ind
-        self.trg_eos_ind = trg_eos_ind
+        self.vocab_size = vocab_size
+        self.pad_ind = pad_ind # use source and target pad token to create masks
+        self.start_ind = start_ind
+        self.end_ind = end_ind
         self.seq_len = seq_len
         
         self.num_heads = num_heads # number of multi-head
@@ -227,24 +225,24 @@ class Transformer(nn.Module):
         self.d_ff = d_ff # forward expansion
         self.dropout = dropout # dropout rate
         
-        self.src_embedding = nn.Embedding(self.src_vocab_size, d_model)
-        self.trg_embedding = nn.Embedding(self.trg_vocab_size, d_model)
+        self.src_embedding = nn.Embedding(self.vocab_size, d_model)
+        self.trg_embedding = nn.Embedding(self.vocab_size, d_model)
         self.positional_encoder = PositionalEncoder(self.seq_len, self.d_model)
         
         self.encoder = Encoder(self.num_layers, self.dropout, self.d_model, self.num_heads, self.d_ff)
         self.decoder = Decoder(self.num_layers, self.dropout, self.d_model, self.num_heads, self.d_ff)
-        self.output_linear = nn.Linear(d_model, self.trg_vocab_size)
+        self.output_linear = nn.Linear(d_model, self.vocab_size)
         self.softmax = nn.LogSoftmax(dim=-1)
     
     
     # mask padding index
     def generate_mask(self, src_input):
-        return (src_input != self.src_pad_ind).unsqueeze(1)  # (B, 1, L)
+        return (src_input != self.pad_ind).unsqueeze(1)  # (B, 1, L)
     
     
     # mask padding index and create square subsequent mask
     def generate_tril_mask(self, trg_input):
-        d_mask = (trg_input != self.trg_pad_ind).unsqueeze(1)  # (B, 1, L)
+        d_mask = (trg_input != self.pad_ind).unsqueeze(1)  # (B, 1, L)
 
         nopeak_mask = torch.ones([1, self.seq_len, self.seq_len], dtype=torch.bool)  # (1, L, L)
         nopeak_mask = torch.tril(nopeak_mask)  # (1, L, L) to triangular shape
@@ -261,7 +259,7 @@ class Transformer(nn.Module):
         src_input = src_input.to(dtype=torch.long)
         trg_input = trg_input.to(dtype=torch.long)
         
-        # create masks
+        # create attention masks
         e_mask = self.generate_mask(src_input)
         d_mask = self.generate_tril_mask(trg_input)
             
@@ -274,16 +272,16 @@ class Transformer(nn.Module):
         e_output = self.encoder(src_input, e_mask) # (B, L, d_model)
         d_output = self.decoder(trg_input, e_output, e_mask, d_mask) # (B, L, d_model)
 
-        output = self.softmax(self.output_linear(d_output)) # (B, L, d_model) => # (B, L, trg_vocab_size)
+        output = self.softmax(self.output_linear(d_output)) # (B, L, d_model) => # (B, L, vocab_size)
     
         return output
     
     
-    
+    @torch.no_grad
     def inference(self, src_input):
         # construct trg_input
-        trg_input = torch.LongTensor([self.trg_pad_ind] * self.seq_len).to(src_input.device) # (L)
-        trg_input[0] = self.trg_sos_ind # assign sos token
+        trg_input = torch.LongTensor([self.pad_ind] * self.seq_len).to(src_input.device) # (L)
+        trg_input[0] = self.start_ind # assign sos token
         
         # create masks
         e_mask = self.generate_mask(src_input)
@@ -303,7 +301,7 @@ class Transformer(nn.Module):
             
             d_output = self.decoder(trg_encoded, e_output,  e_mask, d_mask) # (1, L, d_model)
             
-            output = self.softmax(self.output_linear(d_output) ) # (1, L, trg_vocab_size)
+            output = self.softmax(self.output_linear(d_output) ) # (1, L, vocab_size)
  
             # greedy search
             decoder_outputs = torch.argmax(output, dim=-1) # (1, L)
@@ -315,7 +313,7 @@ class Transformer(nn.Module):
                 cur_len += 1
                 
             # generated <eos> token
-            if last_word == self.trg_eos_ind:
+            if last_word == self.end_ind:
                 break
         
         return trg_input[1:]
@@ -323,14 +321,21 @@ class Transformer(nn.Module):
 
 def main():
     seq_len = 64
-    src_pad_ind = 0
-    trg_pad_ind = 0
-    trg_sos_ind = 1
-    trg_eos_ind = 2
-    src_vocab_size = 50000
-    trg_vocab_size = 50000
-    num_layers = 6
-    model = Transformer(src_vocab_size, trg_vocab_size, src_pad_ind, trg_pad_ind, trg_sos_ind, trg_eos_ind, seq_len, num_layers=num_layers)
+    
+    d_model = 640
+    num_layers = 8
+    num_heads = 10
+    d_ff = 2048
+    
+    pad_ind = 10257
+    start_ind = 10258
+    end_ind = 10259
+    vocab_size = 10260
+    
+    model = Transformer(
+        vocab_size, pad_ind, start_ind, end_ind, 
+        seq_len, num_heads=num_heads, num_layers=num_layers, d_model=d_model, d_ff=d_ff
+    )
     model = model.to('cuda')
     summary(model, [(seq_len,), (seq_len,)])
     
