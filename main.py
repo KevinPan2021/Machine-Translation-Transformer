@@ -153,7 +153,7 @@ def main():
     model = model.to(compute_device()) # move the model to GPU
     
     # model training
-    #model_training(train_loader, valid_loader, model)
+    model_training(train_loader, valid_loader, model)
     
     # load the best model
     model.load_state_dict(torch.load(f'{type(model).__name__}.pth'))
