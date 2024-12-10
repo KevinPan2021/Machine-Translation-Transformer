@@ -1,51 +1,54 @@
-Introduction:
-	This project aims to preform Machine Translation (English to Chinese) using Transformer Trained from Scratch.
+# Machine Translation with Transformer
+
+This project aims to preform Machine Translation (English to Chinese) using Transformer Trained from Scratch. (GUI included)
+![Translation](external/GUI.png)
+
+### Dataset: 
+[Kaggle machine translation](https://www.kaggle.com/code/concyclics/machine-translation-between-chinese-and-english/)
+	
+
+### Build: 
+
+	CPU: Intel i9-13900H (14 cores)
+	GPU: NVIDIA RTX 4060 (VRAM 8 GB)
+	RAM: 32 GB
 
 
+### Python Packages:
 
-Dataset: 
-	https://www.kaggle.com/code/concyclics/machine-translation-between-chinese-and-english/
-
-
-
-Build: 
-	System:
-		CPU: Intel i9-13900H (14 cores)
-		GPU: NIVIDIA RTX 4060 (VRAM 8 GB)
-		RAM: 32 GB
-
-	Configuration:
-		CUDA 12.1
-		Anaconda 3
-		Python = 3.11.7
-		Spyder = 5.4.3
+	conda install pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 pytorch-cuda=12.1 -c pytorch -c nvidia
+	conda install -c conda-forge pytorch = 2.1.2
+	conda install -c conda-forge pandas = 1.5.3
+	conda install -c conda-forge tqdm = 4.64.1
+	conda install -c conda-forge nltk = 3.8.1
+	conda install -c conda-forge matplotlib = 3.8.0
+	conda install -c conda-forge numpy = 1.26.4
 		
-	Core Python Package:
-		pytorch = 2.1.2
-		numpy = 1.26.4
-		matplotlib = 3.8.0
-		pandas = 1.5.3
-		tqdm = 4.64.1
-		jieba = 0.42.1
-		nltk = 3.8.1
+		
+		
+### Training Curves
+
+<p align="center">
+  <img src="external/GUI.png" alt="Loss Curve" width="45%">
+  <img src="external/GUI.png" alt="BLEU Curve" width="45%">
+</p>
+		
 
 
 
-Generate ".py" file from ".ui" file:
-	1) open Terminal. Navigate to directory
-	2) Type "pyuic5 -x qt_main.ui -o qt_main.py"
 
-
-
-Core Project Structure:
+### Code Structure:
+```bash
 	GUI.py (Run to generate a GUI)
 	main.py (Run to train model)
 	transformer.py
 	qt_main.py
 	training.py
 	visualization.py
+```
 
 
-Credits:
+### Credits:
 	https://github.com/openai/gpt-2/blob/master/src/encoder.py
+	Attention is all you need
 	
