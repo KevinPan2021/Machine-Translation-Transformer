@@ -39,12 +39,16 @@ This project aims to preform Machine Translation (English to Chinese) using Tran
 
 ### Code Structure:
 ```bash
-	GUI.py (Run to generate a GUI)
-	main.py (Run to train model)
-	transformer.py
-	qt_main.py
-	training.py
-	visualization.py
+├── GUI.py (Run to generate a GUI)
+├── main.py (Run to train model)
+├── Transformer.py
+├── qt_main.py
+├── training.py
+├── visualization.py
+├── summary.py
+├── tokenizer.py
+├── vocab.pkl
+
 ```
 
 
