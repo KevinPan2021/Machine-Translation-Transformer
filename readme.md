@@ -17,7 +17,6 @@ This project aims to preform Machine Translation (English to Chinese) using Tran
 ### Python Packages:
 
 	conda install pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 pytorch-cuda=12.1 -c pytorch -c nvidia
-	conda install -c conda-forge pytorch = 2.1.2
 	conda install -c conda-forge pandas = 1.5.3
 	conda install -c conda-forge tqdm = 4.64.1
 	conda install -c conda-forge nltk = 3.8.1
