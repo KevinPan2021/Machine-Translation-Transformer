@@ -29,8 +29,8 @@ This project aims to preform Machine Translation (English to Chinese) using Tran
 ### Training Curves
 
 <p align="center">
-  <img src="external/GUI.png" alt="Loss Curve" width="45%">
-  <img src="external/GUI.png" alt="BLEU Curve" width="45%">
+  <img src="external/loss.png" alt="Loss Curve" width="45%">
+  <img src="external/BLUE.png" alt="BLEU Curve" width="45%">
 </p>
 		
 
